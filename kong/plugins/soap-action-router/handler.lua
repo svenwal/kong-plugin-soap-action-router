@@ -10,8 +10,8 @@ function soapactionrouter:rewrite(config)
 	 kong.log.debug("No POST request")
 	 return
     end
-
-    if kong.request.get_path() ~= config.path_to_watch then
+    local path = kong.request.get_path()
+    if path:sub(1, #config.path_to_watch) ~= config.path_to_watch then
 	 kong.log.debug("Not the path to be listened at")
 	 return
     end
