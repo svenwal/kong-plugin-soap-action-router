@@ -1,6 +1,6 @@
 local soapactionrouter = {
     PRIORITY = 1010, -- set the plugin priority, which determines plugin execution order
-    VERSION = "2.1",
+    VERSION = "2.1.1",
   }
 local xml2lua = require("xml2lua")
 local xmlhandler = require("xmlhandler.tree")
@@ -127,7 +127,7 @@ function soapactionrouter:rewrite(config)
 end
 
 function soapactionrouter:access(config)
-    if not config.clean_headers_before_upstrem then
+    if not config.clean_headers_before_upstream then
         return
     end
 

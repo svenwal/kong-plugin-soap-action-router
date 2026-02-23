@@ -37,7 +37,7 @@ All parameters live under the plugin `config` section.
 | `body_nodes_to_extract` | `array[string]` | `["Verb", "Noun"]` | List of XML element names to search for anywhere inside the parsed SOAP message. The first occurrence of each element is used. |
 | `header_names_for_nodes` | `array[string]` | `["x-soap-verb", "x-soap-noun"]` | Header names to use for each entry in `body_nodes_to_extract` (matched by index). If a header name at an index is missing, that element is ignored. |
 | `deny_if_no_action` | `boolean` | `true` | When `true`, if no SOAP action can be found the plugin logs an error and stops processing. When `false`, the request continues without setting the action header. |
-| `clean_header_before_upstrem` | `boolean` | `false` | When `true`, the plugin clears all headers it created (`header_name_action` and all `header_names_for_nodes`) in the `access` phase before the request is sent upstream. |
+| `clean_headers_before_upstream` | `boolean` | `false` | When `true`, the plugin clears all headers it created (`header_name_action` and all `header_names_for_nodes`) in the `access` phase before the request is sent upstream. |
 | `content_to_scan` | `array[string]` | `["application/xml"]` | List of `Content-Type` values to be treated as SOAP XML. Only requests whose `Content-Type` matches one of these entries are parsed. |
 
 ---
@@ -197,12 +197,12 @@ plugins:
       header_names_for_nodes:
         - "x-soap-verb"
         - "x-soap-noun"
-      clean_header_before_upstrem: true
+      clean_headers_before_upstream: true
       content_to_scan:
         - "application/xml"
 ```
 
-With `clean_header_before_upstrem: true`:
+With `clean_headers_before_upstream: true`:
 - Headers are still created in the `rewrite` phase so other plugins (and routing) can use them.  
 - In the `access` phase, the plugin removes `header_name_action` and all headers listed in `header_names_for_nodes` before the request is forwarded upstream.
 
@@ -215,7 +215,7 @@ With `clean_header_before_upstrem: true`:
 - The request `Content-Type` is matched against all values in `content_to_scan`; if none match, the body is not parsed.  
 - The SOAP action is derived from the first operation element found under `soapenv:Body`.  
 - Additional node values are looked up by name in the parsed SOAP tree (using a recursive search) and written to the headers configured in `header_names_for_nodes`.  
-- Headers are set using `kong.service.request.set_header`, so they are visible to later plugins and, unless `clean_header_before_upstrem` is `true`, to the upstream service.
+- Headers are set using `kong.service.request.set_header`, so they are visible to later plugins and, unless `clean_headers_before_upstream` is `true`, to the upstream service.
 
 ---
 
