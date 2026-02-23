@@ -1,82 +1,68 @@
 # Kong Plugin: SOAP Action Router
 
-A Kong plugin to extract the SOAP Action from an XML SOAP POST request body and add it as a header before route definition (needs to be applied globally).
+A Kong plugin to extract information from an XML SOAP POST request body and add it as headers before route definition (the plugin is intended to be applied globally).
 
-This plugin inspects incoming `POST` requests at a specified **path**, parses the SOAP XML, extracts the first operation name from the SOAP Body, and injects it into a header for downstream routing or processing.
+The plugin:
+- Inspects incoming `POST` requests whose **path starts with** a configured prefix  
+- Parses the SOAP XML body  
+- Derives an **action** from the first operation element in the SOAP Body  
+- Optionally extracts additional fields (for example `Verb` and `Noun`) from anywhere in the parsed SOAP message  
+- Injects all extracted values into configurable headers for downstream routing or processing
 
 ---
 
 ## Overview
 
 SOAP (Simple Object Access Protocol) requests often do not include a reliable HTTP `SOAPAction` header that downstream systems can use for routing.  
-The **soap-action-router** plugin parses the incoming SOAP XML and derives an action name from the first operation element in the SOAP Body, then sets it as a request header.
+The **soap-action-router** plugin parses the incoming SOAP XML and derives:
 
-This enables:
-- Routing based on SOAP operation names  
-- Logging and analytics based on SOAP actions  
-- Protocol bridging scenarios where SOAP action needs to be exposed to REST/JSON consumers
+- an **action** from the first operation element in the SOAP Body
+- zero or more **additional values** from named XML elements (e.g. `Verb`, `Noun`)
+
+These values are written to headers so that:
+- Routing can be based on SOAP operation names and/or other fields  
+- Logging and analytics can use extracted SOAP metadata  
+- Protocol bridging scenarios can expose SOAP details to REST/JSON consumers
 
 ---
 
 ## Configuration Parameters
 
+All parameters live under the plugin `config` section.
+
 | Property | Type | Default | Description |
 |----------|------|---------|-------------|
-| `path_to_watch` | `string` | `"/soap"` | The path on which SOAP requests should be inspected. It is used to limit down the used CPU as it needs to be enabled globally |
-| `header_name` | `string` | `"x-soap-action"` | The name of the header to set with the extracted SOAP action. |
-| `content_to_scan` | `array[string]` | `["application/xml"]` | List of content-type values to consider as SOAP XML. |
+| `path_to_watch` | `string` | `"/soap"` | Path prefix to inspect. Only requests whose path **starts with** this prefix are processed. |
+| `header_name_action` | `string` | `"x-soap-action"` | Header name that will receive the extracted SOAP action. |
+| `body_nodes_to_extract` | `array[string]` | `["Verb", "Noun"]` | List of XML element names to search for anywhere inside the parsed SOAP message. The first occurrence of each element is used. |
+| `header_names_for_nodes` | `array[string]` | `["x-soap-verb", "x-soap-noun"]` | Header names to use for each entry in `body_nodes_to_extract` (matched by index). If a header name at an index is missing, that element is ignored. |
+| `deny_if_no_action` | `boolean` | `true` | When `true`, if no SOAP action can be found the plugin logs an error and stops processing. When `false`, the request continues without setting the action header. |
+| `content_to_scan` | `array[string]` | `["application/xml"]` | List of `Content-Type` values to be treated as SOAP XML. Only requests whose `Content-Type` matches one of these entries are parsed. |
 
 ---
 
 ## Example Configurations
 
-### Basic Setup
+### 1. Basic: Extract Only SOAP Action
 
-Enable the plugin on a service expecting SOAP POST requests to `/soap`:
+Enable the plugin globally and extract just the SOAP action into `x-soap-action`:
 
 ```yaml
 plugins:
   - name: soap-action-router
     config:
       path_to_watch: "/soap"
-      header_name: "x-soap-action"
+      header_name_action: "x-soap-action"
+      body_nodes_to_extract: []
+      header_names_for_nodes: []
+      deny_if_no_action: true
       content_to_scan:
         - "application/xml"
 ```
 
-When a POST request with SOAP XML is sent to `/soap`, the plugin will parse the SOAP body and add the extracted action as a header.
+For a request with body:
 
----
-
-## Behavior Notes
-
-- The plugin only inspects **POST** requests (because of SOAPs nature).  
-- Only requests matching `config.path_to_watch` are processed.  
-- The request `Content-Type` is checked against the list in `content_to_scan`; if it doesn’t match, the plugin does not parse the body.  
-- The first operation in the SOAP Body is used as the action.  
-- The extracted action is set using `kong.service.request.set_header`, allowing subsequent route matching, plugins or upstream services to receive it.
-
----
-
-## How It Works
-
-1. The plugin hooks into the `rewrite` phase of the request.  
-2. If the HTTP method is `POST` and the request path equals `path_to_watch`, it proceeds.  
-3. The plugin reads the raw request body and parses the XML.  
-4. It traverses the SOAP Envelope/Body and extracts the operation name.  
-5. The plugin sets the configured header with the SOAP action.
-
----
-
-## Example In Action
-
-#### Incoming SOAP Request
-
-```
-POST /soap HTTP/1.1
-Host: example.com
-Content-Type: application/xml
-
+```xml
 <soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/">
   <soapenv:Body>
     <ns1:GetUser xmlns:ns1="http://example.org/wsdl"/>
@@ -84,26 +70,142 @@ Content-Type: application/xml
 </soapenv:Envelope>
 ```
 
-With the plugin configured:
+The upstream request will contain:
+
+```http
+X-Soap-Action: GetUser
+```
+
+---
+
+### 2. Default: Extract Action + Verb/Noun
+
+Using the defaults, the plugin will also extract `Verb` and `Noun` from anywhere inside the parsed SOAP tree and put them into `x-soap-verb` and `x-soap-noun`:
 
 ```yaml
-config:
-  path_to_watch: "/soap"
-  header_name: "x-soap-action"
+plugins:
+  - name: soap-action-router
+    config:
+      path_to_watch: "/soap-router"
+      header_name_action: "x-soap-action"
+      # Defaults shown explicitly here for clarity
+      body_nodes_to_extract:
+        - "Verb"
+        - "Noun"
+      header_names_for_nodes:
+        - "x-soap-verb"
+        - "x-soap-noun"
+      deny_if_no_action: true
+      content_to_scan:
+        - "application/xml"
 ```
 
-#### Resulting Header Added
+Given a payload like:
 
+```xml
+<soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/"
+                  xmlns:mes="http://iec.ch/TC57/2011/schema/message">
+  <soapenv:Body>
+    <mes:RequestMessage>
+      <Header>
+        <Verb>create</Verb>
+        <Noun>GetAuthorizationCodes</Noun>
+      </Header>
+      <Payload>
+        <!-- ... -->
+      </Payload>
+    </mes:RequestMessage>
+  </soapenv:Body>
+</soapenv:Envelope>
 ```
-x-soap-action: GetUser
+
+The upstream request will contain headers similar to:
+
+```http
+X-Soap-Action: RequestMessage
+X-Soap-Verb: create
+X-Soap-Noun: GetAuthorizationCodes
 ```
+
+---
+
+### 3. Custom Nodes and Headers
+
+You can extract any other XML elements into arbitrary headers.  
+For example, to extract `Revision` and `MessageID`:
+
+```yaml
+plugins:
+  - name: soap-action-router
+    config:
+      path_to_watch: "/soap"
+      header_name_action: "x-soap-action"
+      body_nodes_to_extract:
+        - "Revision"
+        - "MessageID"
+      header_names_for_nodes:
+        - "x-soap-revision"
+        - "x-soap-message-id"
+      deny_if_no_action: true
+      content_to_scan:
+        - "application/xml"
+```
+
+The plugin will search the parsed SOAP tree for the first `Revision` and `MessageID` elements and set them on the configured headers.
+
+---
+
+### 4. Allow Requests Without an Action
+
+If your SOAP messages sometimes lack a clear operation element and you still want the request to pass through, you can disable the strict behavior:
+
+```yaml
+plugins:
+  - name: soap-action-router
+    config:
+      path_to_watch: "/soap"
+      header_name_action: "x-soap-action"
+      deny_if_no_action: false
+      body_nodes_to_extract:
+        - "Verb"
+      header_names_for_nodes:
+        - "x-soap-verb"
+      content_to_scan:
+        - "application/xml"
+```
+
+In this mode:
+- If an action is found, `x-soap-action` is set as usual.  
+- If no action is found, the plugin logs an error but does **not** stop processing; any configured node headers that can be found are still set, and the request continues to the upstream.
+
+---
+
+## Behavior Notes
+
+- The plugin only inspects **POST** requests.  
+- The request path must **start with** `config.path_to_watch` for the plugin to run.  
+- The request `Content-Type` is matched against all values in `content_to_scan`; if none match, the body is not parsed.  
+- The SOAP action is derived from the first operation element found under `soapenv:Body`.  
+- Additional node values are looked up by name in the parsed SOAP tree (using a recursive search) and written to the headers configured in `header_names_for_nodes`.  
+- Headers are set using `kong.service.request.set_header`, so they are visible to later plugins and the upstream service.
+
+---
+
+## How It Works (Internals)
+
+1. The plugin hooks into the `rewrite` phase.  
+2. It checks HTTP method, path prefix, and `Content-Type`.  
+3. It reads the raw request body and parses the XML using `xml2lua` with the `xmlhandler.tree` handler.  
+4. It traverses the parsed SOAP Envelope/Body to find the first operation and derive the action name.  
+5. It optionally recursively searches the parsed tree for any elements listed in `body_nodes_to_extract` and maps them to headers via `header_names_for_nodes`.  
+6. Depending on `deny_if_no_action`, the plugin either stops processing when no action is found or lets the request pass through without an action header.
 
 ---
 
 ## Dependencies
 
 This plugin uses:
-- `xml2lua` – to parse SOAP XML to a Lua table
-- `xmlhandler.tree` – as the XML handler implementation
+- `xml2lua` – to parse SOAP XML to a Lua table  
+- `xmlhandler.tree` – as the XML handler implementation  
 
-Both are part of the default Kong Enterprise image
+Both are part of the default Kong Enterprise image.

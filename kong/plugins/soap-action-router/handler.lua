@@ -97,7 +97,7 @@ function soapactionrouter:rewrite(config)
         end
 
         if not action then
-            kong.log.deny_if_no_action("Action not found in SOAP body")
+            kong.log.info("Action not found in SOAP body")
             if config.deny_if_no_action ~= false then
                 return
             end
