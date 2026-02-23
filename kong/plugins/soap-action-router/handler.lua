@@ -40,14 +40,27 @@ function soapactionrouter:rewrite(config)
 	 kong.log.debug("No POST request")
 	 return
     end
-    local path = kong.request.get_path()
+    local path = kong.request.get_path() or ""
+    kong.log.debug("soap-action-router: incoming path: " .. path)
     if path:sub(1, #config.path_to_watch) ~= config.path_to_watch then
-	 kong.log.debug("Not the path to be listened at")
+	 kong.log.debug("soap-action-router: not the path to be listened at, expected prefix " .. config.path_to_watch)
 	 return
     end
 
-    if kong.request.get_header("content-type") ~= config.content_to_scan then
-	 --kong.log.debug("Not watched content type")
+    local ct = kong.request.get_header("content-type") or ""
+    kong.log.debug("soap-action-router: content-type: " .. ct)
+    -- config.content_to_scan is an array; check membership
+    local watch_ct = false
+    if type(config.content_to_scan) == "table" then
+        for _, v in ipairs(config.content_to_scan) do
+            if v == ct then
+                watch_ct = true
+                break
+            end
+        end
+    end
+    if not watch_ct then
+	 kong.log.debug("soap-action-router: not a watched content type")
     end
     -- Read the request body
     local body = kong.request.get_raw_body()
@@ -68,12 +81,14 @@ function soapactionrouter:rewrite(config)
 	kong.response.exit(400, "Bad Request - no XML Content")
     end
     local soap_data = xmlhandler.root
+    kong.log.debug("soap-action-router: parsed SOAP root type: " .. type(soap_data))
 
     local action
     local key
     local _
     if soap_data and soap_data["soapenv:Envelope"] and soap_data["soapenv:Envelope"]["soapenv:Body"] then
         local body_node = soap_data["soapenv:Envelope"]["soapenv:Body"]
+        kong.log.debug("soap-action-router: found soapenv:Body, type=" .. type(body_node))
         for key, _ in pairs(body_node) do
             -- key is the operation name, like ns:create
             action = key:match(":(%w+)$") or key
@@ -86,34 +101,28 @@ function soapactionrouter:rewrite(config)
             return
         end
 
-        -- Try to get configured body nodes (e.g., Verb/Noun) from the parsed XML under the same operation node
-        if key and body_node[key] then
-            local op_node = body_node[key]
+        -- Set the action header
+        kong.service.request.set_header(config.header_name_action, action)
 
-            -- If there are multiple operation nodes, take the first
-            if type(op_node) == "table" and op_node[1] and type(op_node[1]) == "table" then
-                op_node = op_node[1]
-            end
+        -- Try to get configured body nodes (e.g., Verb/Noun) from the parsed XML tree
+        local nodes = config.body_nodes_to_extract or {}
+        local headers = config.header_names_for_nodes or {}
+        kong.log.debug("soap-action-router: body_nodes_to_extract size=" .. tostring(#nodes) ..
+            ", header_names_for_nodes size=" .. tostring(#headers))
 
-            if type(op_node) == "table" then
-                local nodes = config.body_nodes_to_extract or {}
-                local headers = config.header_names_for_nodes or {}
-
-                for idx, node_name in ipairs(nodes) do
-                    local header_name = headers[idx]
-                    if header_name then
-                        local value = find_node_value(op_node, node_name)
-                        if type(value) == "string" and value ~= "" then
-                            kong.log.info("SOAP node " .. node_name .. " value " .. value .. " will be added to header " .. header_name)
-                            kong.service.request.set_header(header_name, value)
-                        end
-                    end
+        for idx, node_name in ipairs(nodes) do
+            local header_name = headers[idx]
+            kong.log.debug("soap-action-router: checking node[" .. tostring(idx) .. "]=" .. tostring(node_name) ..
+                " -> header=" .. tostring(header_name))
+            if header_name then
+                local value = find_node_value(soap_data, node_name)
+                kong.log.debug("soap-action-router: find_node_value(" .. tostring(node_name) .. ") returned " .. tostring(value))
+                if type(value) == "string" and value ~= "" then
+                    kong.log.info("SOAP node " .. node_name .. " value " .. value .. " will be added to header " .. header_name)
+                    kong.service.request.set_header(header_name, value)
                 end
             end
         end
-
-        -- Set the action header
-        kong.service.request.set_header(config.header_name_action, action)
     end
 end
 
