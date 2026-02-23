@@ -4,9 +4,11 @@ return {
     { config = {
         type = "record",
         fields = {
-		{ path_to_watch = { type = "string", required = true, default = "/soap"}, },
-                { header_name = { type = "string",required = true,  default = "x-soap-action"}, },
-		{ content_to_scan = { type = "array", required = true, default = {"application/xml"}, elements = { type = "string"}, }, },
+          { path_to_watch = { type = "string", required = true, default = "/soap"}, },
+          { header_name_action = { type = "string", required = true, default = "x-soap-action"}, },
+          { body_nodes_to_extract = { type = "array", required = false, default = {"Verb", "Noun"}, elements = { type = "string" }, }, },
+          { header_names_for_nodes = { type = "array", required = false, default = {"x-soap-verb", "x-soap-noun"}, elements = { type = "string" }, }, },
+          { content_to_scan = { type = "array", required = true, default = {"application/xml"}, elements = { type = "string"}, }, },
         },
       },
     },
