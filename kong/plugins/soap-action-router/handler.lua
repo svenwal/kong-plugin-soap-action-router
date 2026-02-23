@@ -1,6 +1,6 @@
 local soapactionrouter = {
     PRIORITY = 1010, -- set the plugin priority, which determines plugin execution order
-    VERSION = "0.9",
+    VERSION = "2.1",
   }
 local xml2lua = require("xml2lua")
 local xmlhandler = require("xmlhandler.tree")
@@ -122,6 +122,27 @@ function soapactionrouter:rewrite(config)
                     kong.service.request.set_header(header_name, value)
                 end
             end
+        end
+    end
+end
+
+function soapactionrouter:access(config)
+    if not config.clean_headers_before_upstrem then
+        return
+    end
+
+    kong.log.debug("soap-action-router: cleaning headers before upstream")
+
+    -- Clear action header
+    if config.header_name_action then
+        kong.service.request.clear_header(config.header_name_action)
+    end
+
+    -- Clear any configured node headers
+    local headers = config.header_names_for_nodes or {}
+    for _, header_name in ipairs(headers) do
+        if header_name then
+            kong.service.request.clear_header(header_name)
         end
     end
 end
