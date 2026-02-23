@@ -5,6 +5,36 @@ local soapactionrouter = {
 local xml2lua = require("xml2lua")
 local xmlhandler = require("xmlhandler.tree")
 
+-- Recursively search a parsed XML node for the first occurrence
+-- of a given child element name and return its text value.
+local function find_node_value(node, target)
+    if type(node) ~= "table" then
+        return nil
+    end
+
+    -- Direct child match
+    if node[target] ~= nil then
+        local v = node[target]
+        if type(v) == "table" then
+            -- xmlhandler.tree may keep text in the first entry
+            return v[1]
+        end
+        return v
+    end
+
+    -- Look recursively in children
+    for _, child in pairs(node) do
+        if type(child) == "table" then
+            local v = find_node_value(child, target)
+            if v ~= nil then
+                return v
+            end
+        end
+    end
+
+    return nil
+end
+
 function soapactionrouter:rewrite(config)
     if kong.request.get_method() ~= "POST" then
 	 kong.log.debug("No POST request")
@@ -72,10 +102,7 @@ function soapactionrouter:rewrite(config)
                 for idx, node_name in ipairs(nodes) do
                     local header_name = headers[idx]
                     if header_name then
-                        local value = op_node[node_name]
-                        if type(value) == "table" then
-                            value = value[1]
-                        end
+                        local value = find_node_value(op_node, node_name)
                         if type(value) == "string" and value ~= "" then
                             kong.log.info("SOAP node " .. node_name .. " value " .. value .. " will be added to header " .. header_name)
                             kong.service.request.set_header(header_name, value)
