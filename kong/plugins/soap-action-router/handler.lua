@@ -97,14 +97,14 @@ function soapactionrouter:rewrite(config)
         end
 
         if not action then
-            kong.log.err("Action not found in SOAP body")
-            return
+            kong.log.deny_if_no_action("Action not found in SOAP body")
+            if config.deny_if_no_action ~= false then
+                return
+            end
+        else
+            kong.service.request.set_header(config.header_name_action, action)
         end
 
-        -- Set the action header
-        kong.service.request.set_header(config.header_name_action, action)
-
-        -- Try to get configured body nodes (e.g., Verb/Noun) from the parsed XML tree
         local nodes = config.body_nodes_to_extract or {}
         local headers = config.header_names_for_nodes or {}
         kong.log.debug("soap-action-router: body_nodes_to_extract size=" .. tostring(#nodes) ..
